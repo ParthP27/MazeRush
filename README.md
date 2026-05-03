@@ -1,0 +1,2 @@
+# MazeRush
+MazeRush game C++

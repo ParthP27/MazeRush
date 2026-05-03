@@ -1,0 +1,3 @@
+/Users/pparth/Documents/Private/MazeRushArena/build/CMakeFiles/MazeRushArena.dir
+/Users/pparth/Documents/Private/MazeRushArena/build/CMakeFiles/edit_cache.dir
+/Users/pparth/Documents/Private/MazeRushArena/build/CMakeFiles/rebuild_cache.dir

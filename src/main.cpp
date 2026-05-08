@@ -4,6 +4,8 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
+#include <cstdlib>
+#include <ctime>
 
 using namespace std;
 
@@ -14,6 +16,12 @@ const int TILE = 24;
 enum Cell {
     WALL,
     PATH
+};
+
+enum GameState {
+    PLAYING,
+    WON,
+    LOST
 };
 
 struct Point {
@@ -30,8 +38,14 @@ vector<Point> directions = {
     {-2, 0}, {2, 0}, {0, -2}, {0, 2}
 };
 
+bool showHint = false;
+
 bool inside(int r, int c) {
     return r > 0 && r < ROWS - 1 && c > 0 && c < COLS - 1;
+}
+
+void resetMaze() {
+    maze.assign(ROWS, vector<int>(COLS, WALL));
 }
 
 void generateMaze(int r, int c) {
@@ -48,6 +62,20 @@ void generateMaze(int r, int c) {
         if (inside(nr, nc) && maze[nr][nc] == WALL) {
             maze[r + d.r / 2][c + d.c / 2] = PATH;
             generateMaze(nr, nc);
+        }
+    }
+}
+
+void addExtraOpenings(int count) {
+    int opened = 0;
+
+    while (opened < count) {
+        int r = 1 + rand() % (ROWS - 2);
+        int c = 1 + rand() % (COLS - 2);
+
+        if (maze[r][c] == WALL) {
+            maze[r][c] = PATH;
+            opened++;
         }
     }
 }
@@ -83,10 +111,14 @@ vector<Point> bfs(Point start, Point goal) {
         }
     }
 
+    if (!visited[goal.r][goal.c]) {
+        return {};
+    }
+
     vector<Point> path;
     Point cur = goal;
 
-    while (!(cur == start) && cur.r != -1) {
+    while (!(cur == start)) {
         path.push_back(cur);
         cur = parent[cur.r][cur.c];
     }
@@ -101,18 +133,42 @@ bool canMove(Point p) {
            maze[p.r][p.c] == PATH;
 }
 
-int main() {
+void startLevel(Point& player, Point& enemy, Point& goal, GameState& state, int level) {
+    resetMaze();
     generateMaze(1, 1);
-    maze[ROWS - 2][COLS - 2] = PATH;
+
+    player = {1, 1};
+    enemy = {ROWS - 2, 1};
+    goal = {ROWS - 2, COLS - 2};
+
+    maze[player.r][player.c] = PATH;
+    maze[enemy.r][enemy.c] = PATH;
+    maze[goal.r][goal.c] = PATH;
+
+    int openings = 35 + level * 8;
+    addExtraOpenings(openings);
+
+    showHint = false;
+    state = PLAYING;
+}
+
+int main() {
+    srand(time(nullptr));
 
     sf::RenderWindow window(
         sf::VideoMode({COLS * TILE, ROWS * TILE}),
-        "Maze Rush Arena - AI BFS"
+        "Maze Rush Arena - BFS AI"
     );
 
-    Point player{1, 1};
-    Point enemy{ROWS - 2, COLS - 2};
-    Point goal{ROWS - 2, COLS - 2};
+    Point player;
+    Point enemy;
+    Point goal;
+
+    int level = 1;
+    int score = 0;
+    GameState state = PLAYING;
+
+    startLevel(player, enemy, goal, state, level);
 
     sf::Clock enemyClock;
 
@@ -123,35 +179,57 @@ int main() {
             }
 
             if (const auto* key = event->getIf<sf::Event::KeyPressed>()) {
-                Point next = player;
+                if (key->scancode == sf::Keyboard::Scancode::H && state == PLAYING) {
+                    showHint = !showHint;
+                }
 
-                if (key->scancode == sf::Keyboard::Scancode::W) next.r--;
-                if (key->scancode == sf::Keyboard::Scancode::S) next.r++;
-                if (key->scancode == sf::Keyboard::Scancode::A) next.c--;
-                if (key->scancode == sf::Keyboard::Scancode::D) next.c++;
+                if (key->scancode == sf::Keyboard::Scancode::R && state != PLAYING) {
+                    if (state == WON) {
+                        level++;
+                        score += 100;
+                    }
 
-                if (canMove(next)) {
-                    player = next;
+                    startLevel(player, enemy, goal, state, level);
+                    enemyClock.restart();
+                }
+
+                if (state == PLAYING) {
+                    Point next = player;
+
+                    if (key->scancode == sf::Keyboard::Scancode::W) next.r--;
+                    if (key->scancode == sf::Keyboard::Scancode::S) next.r++;
+                    if (key->scancode == sf::Keyboard::Scancode::A) next.c--;
+                    if (key->scancode == sf::Keyboard::Scancode::D) next.c++;
+
+                    if (canMove(next)) {
+                        player = next;
+                    }
                 }
             }
         }
 
-        if (enemyClock.getElapsedTime().asMilliseconds() > 300) {
-            vector<Point> path = bfs(enemy, player);
-            if (!path.empty()) {
-                enemy = path[0];
+        if (state == PLAYING) {
+            int enemyDelay = max(190, 800 - level * 55);
+
+            if (enemyClock.getElapsedTime().asMilliseconds() > enemyDelay) {
+                vector<Point> enemyPath = bfs(enemy, player);
+
+                if (!enemyPath.empty() && rand() % 5 != 0) {
+                    enemy = enemyPath[0];
+                }
+
+                enemyClock.restart();
             }
-            enemyClock.restart();
-        }
 
-        if (player == enemy) {
-            cout << "Game Over! Enemy caught you.\n";
-            window.close();
-        }
+            if (player == enemy) {
+                cout << "Game Over! Press R to restart.\n";
+                state = LOST;
+            }
 
-        if (player == goal) {
-            cout << "You Win!\n";
-            window.close();
+            if (player == goal) {
+                cout << "You Win! Press R for next level.\n";
+                state = WON;
+            }
         }
 
         window.clear();
@@ -162,13 +240,29 @@ int main() {
                 tile.setPosition({float(c * TILE), float(r * TILE)});
 
                 if (maze[r][c] == WALL)
-                    tile.setFillColor(sf::Color(40, 40, 40));
+                    tile.setFillColor(sf::Color(35, 35, 35));
                 else
                     tile.setFillColor(sf::Color(220, 220, 220));
 
                 window.draw(tile);
             }
         }
+
+        if (showHint && state == PLAYING) {
+            vector<Point> hintPath = bfs(player, goal);
+
+            for (Point p : hintPath) {
+                sf::RectangleShape hintTile({TILE - 10.f, TILE - 10.f});
+                hintTile.setPosition({float(p.c * TILE + 5), float(p.r * TILE + 5)});
+                hintTile.setFillColor(sf::Color(255, 220, 0));
+                window.draw(hintTile);
+            }
+        }
+
+        sf::RectangleShape goalShape({TILE - 4.f, TILE - 4.f});
+        goalShape.setPosition({float(goal.c * TILE + 2), float(goal.r * TILE + 2)});
+        goalShape.setFillColor(sf::Color::Green);
+        window.draw(goalShape);
 
         sf::RectangleShape playerShape({TILE - 4.f, TILE - 4.f});
         playerShape.setPosition({float(player.c * TILE + 2), float(player.r * TILE + 2)});
@@ -180,10 +274,11 @@ int main() {
         enemyShape.setFillColor(sf::Color::Red);
         window.draw(enemyShape);
 
-        sf::RectangleShape goalShape({TILE - 4.f, TILE - 4.f});
-        goalShape.setPosition({float(goal.c * TILE + 2), float(goal.r * TILE + 2)});
-        goalShape.setFillColor(sf::Color::Green);
-        window.draw(goalShape);
+        if (state == WON || state == LOST) {
+            sf::RectangleShape overlay({float(COLS * TILE), float(ROWS * TILE)});
+            overlay.setFillColor(sf::Color(0, 0, 0, 130));
+            window.draw(overlay);
+        }
 
         window.display();
     }
